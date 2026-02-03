@@ -27,7 +27,7 @@ app.use((req, resp, next) => {
   next();
 });
 app.use(express.static(path.join(__dirname, '../client/public')));
-app.use(bodyParser.text({ type: "*/*" }));
+app.use(bodyParser.text({ type: "*/*", limit: '1mb' }));
 
 app.set('views', './views');
 
