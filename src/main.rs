@@ -30,6 +30,9 @@ use parsers::ParsedEvent;
 const MAX_SUBSCRIBERS_PER_STREAM: usize = 30;
 const MIN_BUCKET_ID_LENGTH: usize = 10;
 
+const MAX_LOG_LINE_LENGTH: usize = 10_000;
+const MAX_LOG_LINES_PER_REQUEST: usize = 1_000;
+
 // Security headers for HTML responses
 const CSP: &str = "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; connect-src 'self'; base-uri 'self'; form-action 'self'";
 
@@ -246,15 +249,19 @@ async fn post_events(
     Path(bucket_id): Path<String>,
     State(state): State<AppState>,
     body: String,
-) -> StatusCode {
+) -> Result<Response, StatusCode> {
     if body.is_empty() {
-        return StatusCode::BAD_REQUEST;
+        return Err(StatusCode::BAD_REQUEST);
     }
 
     let lines: Vec<&str> = body.split('\n').filter(|line| !line.is_empty()).collect();
 
     if lines.is_empty() {
-        return StatusCode::BAD_REQUEST;
+        return Err(StatusCode::BAD_REQUEST);
+    }
+
+    if lines.len() > MAX_LOG_LINES_PER_REQUEST {
+        return Err(StatusCode::PAYLOAD_TOO_LARGE);
     }
 
     info!(
@@ -263,18 +270,31 @@ async fn post_events(
         lines.len()
     );
 
+    // Only process if there's an active viewer
     let channel = {
-        let mut manager = state.channel_manager.write().await;
-        manager.get_or_create_channel(&bucket_id)
+        let manager = state.channel_manager.read().await;
+        manager.get_channel(&bucket_id)
+    };
+
+    let Some(channel) = channel else {
+        // No active viewers, silently accept but don't process
+        return Ok(StatusCode::NO_CONTENT.into_response());
     };
 
     for line in lines {
-        let mut event = ParsedEvent::new(line.to_string());
+        // Truncate lines that exceed the maximum size
+        let line = if line.len() > MAX_LOG_LINE_LENGTH {
+            format!("{}[truncated by log-bin]", &line[..MAX_LOG_LINE_LENGTH])
+        } else {
+            line.to_string()
+        };
+
+        let mut event = ParsedEvent::new(line.clone());
         event.parse();
 
         let log_event = LogEvent {
             time: event.time,
-            raw: line.to_string(),
+            raw: line,
             fields: event.fields,
             parser: event.parser,
         };
@@ -282,5 +302,5 @@ async fn post_events(
         channel.publish_log(log_event).await;
     }
 
-    StatusCode::NO_CONTENT
+    Ok(StatusCode::NO_CONTENT.into_response())
 }

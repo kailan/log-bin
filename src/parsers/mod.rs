@@ -101,12 +101,11 @@ fn parse_structured_headers(input: &str) -> Option<HashMap<String, String>> {
 
     // Try parsing as a List (only if it has multiple items or items with parameters)
     if let Ok(list) = sfv::Parser::new(input).parse::<sfv::List>() {
-        let has_structure = list.len() > 1 || list.iter().any(|entry| {
-            match entry {
+        let has_structure = list.len() > 1
+            || list.iter().any(|entry| match entry {
                 sfv::ListEntry::Item(item) => !item.params.is_empty(),
                 sfv::ListEntry::InnerList(_) => true,
-            }
-        });
+            });
 
         if has_structure {
             let mut result = HashMap::new();

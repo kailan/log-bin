@@ -134,6 +134,10 @@ impl ChannelManager {
             .clone()
     }
 
+    pub fn get_channel(&self, name: &str) -> Option<Arc<Channel>> {
+        self.channels.get(name).cloned()
+    }
+
     pub async fn garbage_collect(&mut self) {
         let mut to_remove = Vec::new();
 
