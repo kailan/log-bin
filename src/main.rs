@@ -37,7 +37,10 @@ fn security_headers() -> HeaderMap {
     let mut headers = HeaderMap::new();
     headers.insert(header::CONTENT_SECURITY_POLICY, CSP.parse().unwrap());
     headers.insert(header::X_CONTENT_TYPE_OPTIONS, "nosniff".parse().unwrap());
-    headers.insert(header::REFERRER_POLICY, "strict-origin-when-cross-origin".parse().unwrap());
+    headers.insert(
+        header::REFERRER_POLICY,
+        "strict-origin-when-cross-origin".parse().unwrap(),
+    );
     headers
 }
 
@@ -210,20 +213,30 @@ async fn get_bucket(
                         .data(event.data))
                 });
 
-            let mut response = Sse::new(sse_stream)
+            // Add headers to prevent proxy/CDN caching or buffering
+            let mut sse_headers = HeaderMap::new();
+            sse_headers.insert(header::CACHE_CONTROL, "no-cache".parse().unwrap());
+            sse_headers.insert("X-Accel-Buffering", "no".parse().unwrap());
+
+            let sse_response = Sse::new(sse_stream)
                 .keep_alive(
                     axum::response::sse::KeepAlive::new()
                         .interval(std::time::Duration::from_secs(15)),
                 )
                 .into_response();
-            response.headers_mut().insert(header::VARY, "Accept".parse().unwrap());
-            return Ok(response);
+
+            let (mut parts, body) = sse_response.into_parts();
+            parts.headers.extend(sse_headers);
+            return Ok(Response::from_parts(parts, body));
         }
     }
 
-    // Otherwise serve the HTML viewer with 1 hour cache and security headers
+    // Otherwise serve the HTML viewer with no caching to avoid CDN issues
     let mut headers = security_headers();
-    headers.insert(header::CACHE_CONTROL, "public, max-age=3600".parse().unwrap());
+    headers.insert(
+        header::CACHE_CONTROL,
+        "public, max-age=3600".parse().unwrap(),
+    );
     headers.insert(header::VARY, "Accept".parse().unwrap());
 
     Ok((headers, Html(INDEX_HTML)).into_response())
