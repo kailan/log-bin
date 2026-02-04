@@ -210,18 +210,21 @@ async fn get_bucket(
                         .data(event.data))
                 });
 
-            return Ok(Sse::new(sse_stream)
+            let mut response = Sse::new(sse_stream)
                 .keep_alive(
                     axum::response::sse::KeepAlive::new()
                         .interval(std::time::Duration::from_secs(15)),
                 )
-                .into_response());
+                .into_response();
+            response.headers_mut().insert(header::VARY, "Accept".parse().unwrap());
+            return Ok(response);
         }
     }
 
     // Otherwise serve the HTML viewer with 1 hour cache and security headers
     let mut headers = security_headers();
     headers.insert(header::CACHE_CONTROL, "public, max-age=3600".parse().unwrap());
+    headers.insert(header::VARY, "Accept".parse().unwrap());
 
     Ok((headers, Html(INDEX_HTML)).into_response())
 }
