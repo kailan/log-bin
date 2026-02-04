@@ -6,6 +6,9 @@ class LogStream extends Component {
     super(props)
     this.logContainerEl = null;
     this.shouldScroll = true;
+    this.state = {
+      copied: false
+    };
   }
 
   componentDidMount() { this.scroll(); }
@@ -17,6 +20,12 @@ class LogStream extends Component {
     }
   }
 
+  copyToClipboard(text) {
+    navigator.clipboard.writeText(text);
+    this.setState({ copied: true });
+    setTimeout(() => this.setState({ copied: false }), 2000);
+  }
+
   render() {
     const searchExpr = this.props.filter || '';
     const searchTokens = searchExpr.toLowerCase().trim().split(/\s+/).filter(x => x);
@@ -25,9 +34,38 @@ class LogStream extends Component {
     const el = this.logContainerEl;
     this.shouldScroll = !el || (el.scrollHeight - el.scrollTop) === el.offsetHeight;
 
+    const hasLogs = this.props.events.length > 0;
+    const bucketUrl = window.location.href.split('?')[0];
+    const curlCommand = "curl -X POST " + bucketUrl + " -d 'Hello from the terminal!'";
+
     return (
       <main>
-        <ol id="logs" ref={el => { this.logContainerEl = el; }}>
+        {!hasLogs && (
+          <div className="empty-state">
+            <div className="empty-state-icon">
+              <div className="pulse-ring"></div>
+              <div className="pulse-dot"></div>
+            </div>
+            <h2>Waiting for logs...</h2>
+            <p>Send logs to this bin by POSTing to:</p>
+            <div className="empty-state-url">
+              <code>{bucketUrl}</code>
+            </div>
+            <div className="empty-state-example">
+              <div className="example-header">
+                <span>Try it:</span>
+                <button
+                  className={`copy-btn ${this.state.copied ? 'copied' : ''}`}
+                  onClick={() => this.copyToClipboard(curlCommand)}
+                >
+                  {this.state.copied ? '✓ Copied' : 'Copy'}
+                </button>
+              </div>
+              <pre><code>{curlCommand}</code></pre>
+            </div>
+          </div>
+        )}
+        <ol id="logs" ref={el => { this.logContainerEl = el; }} className={!hasLogs ? 'hidden' : ''}>
           {this.props.events.map((evt, idx, allEvts) => {
 
             let isHidden, msgHTML;

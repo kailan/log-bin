@@ -2,6 +2,7 @@ import { Component } from 'preact';
 import Header from './Header';
 import LogStream from './LogStream';
 import Footer from './Footer';
+import Landing from './Landing';
 import Stream from '../stream';
 
 const STREAM_TIMEOUT_MS = 3000;
@@ -20,11 +21,15 @@ class Main extends Component {
       events: [],
       stats: {},
       streamError: false,
-      suspended: null
+      suspended: null,
+      showLanding: !this.bucketID
     }
   }
 
   componentDidMount() {
+    // Only connect to stream if we have a bucket ID
+    if (!this.bucketID) return;
+
     const opts = {};
     if (this.url.searchParams.has('msg')) opts.msgKeys = this.url.searchParams.get('msg').split(/[,|]/);
     if (this.url.searchParams.has('meta')) opts.metaKeys = this.url.searchParams.get('meta').split(/[,|]/);
@@ -49,6 +54,11 @@ class Main extends Component {
     this.stream.connect();
   }
 
+  handleGetStarted = () => {
+    // Redirect to create a new random bucket
+    window.location.href = '/new';
+  }
+
   componentDidUpdate() {
     if (this.state.filterText) {
       this.url.searchParams.set('filter', this.state.filterText);
@@ -63,12 +73,13 @@ class Main extends Component {
   }
 
   render() {
+    // Show landing page if no bucket ID
+    if (this.state.showLanding) {
+      return <Landing onGetStarted={this.handleGetStarted} />;
+    }
+
     return (
       <div className='root'>
-        <div className='warning-banner'>
-          <strong>⚠️ Warning:</strong> Do not send confidential or sensitive data to this app.
-          Logs are accessible to anyone who knows the bucket name or has the link.
-        </div>
         <Header
           bucketID={this.bucketID}
           filterVal={this.state.filterText}
@@ -93,8 +104,8 @@ class Main extends Component {
         )}
         {this.state.suspended && this.state.suspended.suspended && (
           <div className='error-modal suspended-modal'>
-            <div className='heading'>🚫 Bucket Suspended</div>
-            <p>This bucket has been suspended due to high traffic volumes.</p>
+            <div className='heading'>🚫 Bin Suspended</div>
+            <p>This bin has been suspended due to high traffic volumes.</p>
             <p><code>log-bin</code> is intended for development and debugging purposes, and is not designed to handle high volumes of traffic. If you need to inspect logs for a production workload or have any questions about this suspension, please contact Fastly support.</p>
           </div>
         )}

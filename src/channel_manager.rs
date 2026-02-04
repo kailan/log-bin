@@ -1,5 +1,5 @@
-use crate::MAX_LOG_LINES_PER_MINUTE;
 use crate::models::{LogEvent, SseEvent, StatsEvent, SuspensionEvent};
+use crate::MAX_LOG_LINES_PER_MINUTE;
 use futures_util::stream::Stream;
 use std::collections::HashMap;
 use std::pin::Pin;

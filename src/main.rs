@@ -20,9 +20,6 @@ use tower_http::services::ServeDir;
 use tower_http::set_header::SetResponseHeaderLayer;
 use tracing::{info, warn};
 
-// TODO:
-// what happens to suspension when channel is garbage collected?
-
 // Embed static files into the binary
 static INDEX_HTML: &str = include_str!("../client/dist/index.html");
 
@@ -93,7 +90,8 @@ async fn main() {
             header::CACHE_CONTROL,
             header::HeaderValue::from_static("public, max-age=31536000, immutable"),
         ))
-        .route("/", get(redirect_to_random_bucket))
+        .route("/", get(serve_landing))
+        .route("/new", get(create_random_bucket))
         .route("/liveness_check", get(health_check))
         .route("/readiness_check", get(health_check))
         .route(
@@ -165,7 +163,18 @@ async fn fastly_challenge() -> &'static str {
     "*"
 }
 
-async fn redirect_to_random_bucket() -> impl IntoResponse {
+async fn serve_landing() -> impl IntoResponse {
+    // Serve the landing page at root
+    let mut headers = security_headers();
+    headers.insert(
+        header::CACHE_CONTROL,
+        "public, max-age=3600".parse().unwrap(),
+    );
+
+    (headers, Html(INDEX_HTML))
+}
+
+async fn create_random_bucket() -> impl IntoResponse {
     let bucket_id = generate(GenerateOptions {
         components: 2,
         suffix: Some(suffix_generators::number),
@@ -193,11 +202,7 @@ async fn get_bucket(
         let manager = state.channel_manager.read().await;
         if let Some(channel) = manager.get_channel(&bucket_id) {
             if channel.is_suspended() {
-                return Ok((
-                    StatusCode::TOO_MANY_REQUESTS,
-                    SUSPENSION_REASON_TEXT,
-                )
-                    .into_response());
+                return Ok((StatusCode::TOO_MANY_REQUESTS, SUSPENSION_REASON_TEXT).into_response());
             }
         }
     };
@@ -270,17 +275,21 @@ async fn post_events(
     State(state): State<AppState>,
     body: axum::body::Body,
 ) -> Result<Response, StatusCode> {
-    // Check if bucket is suspended before reading body
     {
         let manager = state.channel_manager.read().await;
+
+        // Check if bucket is suspended before reading body
         if let Some(channel) = manager.get_channel(&bucket_id) {
             if channel.is_suspended() {
-                return Ok((
-                    StatusCode::TOO_MANY_REQUESTS,
-                    SUSPENSION_REASON_TEXT,
-                )
-                    .into_response());
+                warn!("Rejected logs for suspended bucket: {}", bucket_id);
+                return Ok((StatusCode::TOO_MANY_REQUESTS, SUSPENSION_REASON_TEXT).into_response());
             }
+        }
+
+        // Do not read body if there are no active viewers to avoid unnecessary work
+        if manager.get_channel(&bucket_id).is_none() {
+            warn!("Discarding logs for bucket with no viewers: {}", bucket_id);
+            return Ok(StatusCode::NO_CONTENT.into_response());
         }
     };
 
@@ -321,11 +330,7 @@ async fn post_events(
     if !channel.record_logs(lines.len() as u64) {
         // Rate limit exceeded, bucket is now suspended
         channel.publish_suspension(true).await;
-        return Ok((
-            StatusCode::TOO_MANY_REQUESTS,
-            SUSPENSION_REASON_TEXT,
-        )
-            .into_response());
+        return Ok((StatusCode::TOO_MANY_REQUESTS, SUSPENSION_REASON_TEXT).into_response());
     }
 
     for line in lines {

@@ -1,4 +1,5 @@
 import { Component } from 'preact';
+import fastlyLogo from '../speedometer-white.svg';
 
 class Header extends Component {
   constructor (props) {
@@ -15,11 +16,17 @@ class Header extends Component {
   render() {
     return (
       <header>
-        <div className='top-bar'>
-          <h1>{this.props.bucketID}</h1>
-          {Boolean(this.props.connCount) && (
-            <span className='conn-count' title='Number of connected clients'>{this.props.connCount}</span>
-          )}
+        <div className='app-header'>
+          <a href="/" className='app-header-brand'>
+            <img src={fastlyLogo} alt="Fastly" className="fastly-logo" />
+            <span className='app-header-title'>log-bin</span>
+          </a>
+          <div className='app-header-bucket'>
+            <span className='bucket-name'>{this.props.bucketID}</span>
+            {Boolean(this.props.connCount) && (
+              <span className='conn-count' title='Number of connected clients'>{this.props.connCount}</span>
+            )}
+          </div>
           <input
             type="text"
             id="filter"
@@ -28,7 +35,10 @@ class Header extends Component {
             onChange={evt => this.props.onFilter(evt.target.value)}
           />
         </div>
-        <div className='client-list'>{(this.props.clients || []).join(', ')}</div>
+        <div className='warning-banner'>
+          <strong>⚠️ NOT FOR PRODUCTION USE</strong> — Do not send confidential or sensitive data.
+          Logs are accessible to anyone who has the link.
+        </div>
       </header>
     );
   }
