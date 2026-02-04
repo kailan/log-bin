@@ -1,29 +1,28 @@
-const React = require('react');
-
-const Header = require('./Header');
-const LogStream = require('./LogStream');
-const Footer = require('./Footer');
-const Stream = require('../stream');
+import { Component } from 'preact';
+import Header from './Header';
+import LogStream from './LogStream';
+import Footer from './Footer';
+import Stream from '../stream';
 
 const STREAM_TIMEOUT_MS = 3000;
 
-class Main extends React.Component {
+class Main extends Component {
   constructor (props) {
     super(props)
-    
+
     this.url = new URL(location.href);
     this.bucketID = this.url.pathname.split('/')[1];
     this.errorTimer = null;
     this.stream = null;
-        
+
     this.state = {
       filterText: this.url.searchParams.get('filter'),
       events: [],
       stats: {},
       streamError: false
-    }  
+    }
   }
-  
+
   componentDidMount() {
     const opts = {};
     if (this.url.searchParams.has('msg')) opts.msgKeys = this.url.searchParams.get('msg').split(/[,|]/);
@@ -47,16 +46,16 @@ class Main extends React.Component {
     });
     this.stream.connect();
   }
-  
+
   componentDidUpdate() {
     if (this.state.filterText) {
       this.url.searchParams.set('filter', this.state.filterText);
     } else {
       this.url.searchParams.delete('filter');
-    } 
+    }
     window.history.pushState({}, '', this.url.toString());
   }
-  
+
   setFilter(newVal) {
     this.setState({ filterText: newVal });
   }
@@ -92,4 +91,4 @@ class Main extends React.Component {
   }
 }
 
-module.exports = Main;
+export default Main;

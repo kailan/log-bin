@@ -1,7 +1,4 @@
-const React = require('react');
-const ReactDOM = require('react-dom');
-const Main = require('./els/Main');
+import { render } from 'preact';
+import Main from './els/Main';
 
-ReactDOM.render((
-  <Main />
-), document.body);
+render(<Main />, document.body);

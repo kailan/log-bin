@@ -1,2 +1,15 @@
 /node_modules/
 /.vscode/
+
+# Rust build artifacts
+/target/
+
+# Client build artifacts
+/client/dist/
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log

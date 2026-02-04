@@ -1,4 +1,4 @@
-const moment = require('moment');
+import moment from 'moment';
 
 const readyStates = {
   0: 'connecting',
@@ -7,7 +7,7 @@ const readyStates = {
 }
 
 class Stream {
-  
+
   constructor (bucketID, options) {
     this.state = 2;
     this.stream = null;
@@ -19,10 +19,10 @@ class Stream {
     }, options);
     this.handlers = { log: new Set(), stats: new Set(), stateChange: new Set() }
   }
-  
+
   connect() {
     if (this.stream) this.stream.close();
-    this.stream = new EventSource('https://'+location.hostname+'/'+this.bucketID);
+    this.stream = new EventSource(`${location.origin}/${this.bucketID}`);
     this.stream.addEventListener('open', () => this.setConnectionState());
     this.stream.addEventListener('error', () => this.setConnectionState());
     this.stream.addEventListener('stats', e => {
@@ -58,7 +58,7 @@ class Stream {
       } else {
         event.message = null;
       }
-      
+
       // If metaKeys is provided, filter out any unwanted fields
       event.fields = Object.keys(fieldData).reduce((out, key) => {
         if (!this.options.metaKeys || this.options.metaKeys.length === 0 || this.options.metaKeys.includes(key)) {
@@ -67,26 +67,26 @@ class Stream {
             return out;
         }
       }, {});
-      
+
       this.emit('log', event);
     });
   }
-  
+
   setConnectionState() {
     if (this.state !== this.stream.readyState){
       this.state = this.stream.readyState;
       this.emit('stateChange', readyStates[this.state]);
     }
   }
-  
+
   on (eventName, fn) {
     if (!(eventName in this.handlers)) throw new Error ('No such handler: ' + eventName);
     this.handlers[eventName].add(fn);
   }
-  
+
   emit (eventName, data) {
     this.handlers[eventName].forEach(fn => fn.call(null, data));
   }
 }
 
-module.exports = Stream;
+export default Stream;
