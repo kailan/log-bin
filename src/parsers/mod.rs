@@ -99,35 +99,44 @@ fn parse_structured_headers(input: &str) -> Option<HashMap<String, String>> {
         }
     }
 
-    // Try parsing as a List
+    // Try parsing as a List (only if it has multiple items or items with parameters)
     if let Ok(list) = sfv::Parser::new(input).parse::<sfv::List>() {
-        let mut result = HashMap::new();
-        for (idx, entry) in list.iter().enumerate() {
-            let value = match entry {
-                sfv::ListEntry::Item(item) => bare_item_to_string(&item.bare_item),
-                sfv::ListEntry::InnerList(inner) => inner
-                    .items
-                    .iter()
-                    .map(|i| bare_item_to_string(&i.bare_item))
-                    .collect::<Vec<_>>()
-                    .join(", "),
-            };
-            result.insert(format!("item{}", idx), value);
-        }
-        if !result.is_empty() {
-            return Some(result);
+        let has_structure = list.len() > 1 || list.iter().any(|entry| {
+            match entry {
+                sfv::ListEntry::Item(item) => !item.params.is_empty(),
+                sfv::ListEntry::InnerList(_) => true,
+            }
+        });
+
+        if has_structure {
+            let mut result = HashMap::new();
+            for (idx, entry) in list.iter().enumerate() {
+                let value = match entry {
+                    sfv::ListEntry::Item(item) => bare_item_to_string(&item.bare_item),
+                    sfv::ListEntry::InnerList(inner) => inner
+                        .items
+                        .iter()
+                        .map(|i| bare_item_to_string(&i.bare_item))
+                        .collect::<Vec<_>>()
+                        .join(", "),
+                };
+                result.insert(format!("item{}", idx), value);
+            }
+            if !result.is_empty() {
+                return Some(result);
+            }
         }
     }
 
-    // Try parsing as a single Item
+    // Try parsing as a single Item (only if it has parameters, otherwise it's just plain text)
     if let Ok(item) = sfv::Parser::new(input).parse::<sfv::Item>() {
-        let mut result = HashMap::new();
-        result.insert("value".to_string(), bare_item_to_string(&item.bare_item));
-        // Include parameters as additional fields
-        for (key, val) in item.params.iter() {
-            result.insert(key.to_string(), bare_item_to_string(val));
-        }
-        if !result.is_empty() {
+        if !item.params.is_empty() {
+            let mut result = HashMap::new();
+            result.insert("value".to_string(), bare_item_to_string(&item.bare_item));
+            // Include parameters as additional fields
+            for (key, val) in item.params.iter() {
+                result.insert(key.to_string(), bare_item_to_string(val));
+            }
             return Some(result);
         }
     }
@@ -261,5 +270,16 @@ mod tests {
         assert_eq!(event.parser, Some("structuredHeaders".to_string()));
         assert!(event.fields.contains_key("level"));
         assert_eq!(event.fields.get("message").unwrap().value, "test message");
+    }
+
+    #[test]
+    fn test_plain_text_not_parsed_as_structured() {
+        // Plain text should not be parsed as structured data
+        let input = "Hello!";
+        let mut event = ParsedEvent::new(input.to_string());
+        event.parse();
+
+        assert_eq!(event.parser, None);
+        assert!(event.fields.is_empty());
     }
 }
