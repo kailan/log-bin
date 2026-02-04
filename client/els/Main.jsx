@@ -63,6 +63,10 @@ class Main extends Component {
   render() {
     return (
       <div className='root'>
+        <div className='warning-banner'>
+          <strong>⚠️ Warning:</strong> Do not send confidential or sensitive data to this app.
+          Logs are accessible to anyone who knows the bucket name or has the link.
+        </div>
         <Header
           bucketID={this.bucketID}
           filterVal={this.state.filterText}

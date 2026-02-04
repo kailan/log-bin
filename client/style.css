@@ -173,3 +173,13 @@ h1 {
 	line-height: 30px;
 	color: white;
 }
+
+.warning-banner {
+	background: #fff3cd;
+	border-bottom: 1px solid #ffc107;
+	color: #856404;
+	padding: 10px 15px;
+	font-size: 14px;
+	text-align: center;
+	flex: 0 0 auto;
+}
