@@ -162,6 +162,12 @@ h1 {
 .error-modal > *:last-child {
   margin-bottom: 0;
 }
+.suspended-modal {
+  border-color: #dc3545;
+}
+.suspended-modal .heading {
+  color: #dc3545;
+}
 
 .conn-count {
 	border-radius: 50%;

@@ -20,6 +20,9 @@ use tower_http::services::ServeDir;
 use tower_http::set_header::SetResponseHeaderLayer;
 use tracing::{info, warn};
 
+// TODO:
+// what happens to suspension when channel is garbage collected?
+
 // Embed static files into the binary
 static INDEX_HTML: &str = include_str!("../client/dist/index.html");
 
@@ -31,7 +34,10 @@ const MAX_SUBSCRIBERS_PER_STREAM: usize = 30;
 const MIN_BUCKET_ID_LENGTH: usize = 10;
 
 const MAX_LOG_LINE_LENGTH: usize = 10_000;
-const MAX_LOG_LINES_PER_REQUEST: usize = 1_000;
+const MAX_LOG_LINES_PER_MINUTE: u64 = 512;
+const MAX_LOG_BODY_SIZE: usize = 1024 * 1024; // 1MB
+
+const SUSPENSION_REASON_TEXT: &str = "This bucket has been suspended due to high traffic volumes. log-bin is intended for development and debugging purposes, and is not designed to handle high volumes of traffic. If you need to inspect logs for a production workload or have any questions about this suspension, please contact Fastly support.";
 
 // Security headers for HTML responses
 const CSP: &str = "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; connect-src 'self'; base-uri 'self'; form-action 'self'";
@@ -69,7 +75,7 @@ async fn main() {
     let gc_manager = state.channel_manager.clone();
     tokio::spawn(async move {
         loop {
-            tokio::time::sleep(tokio::time::Duration::from_secs(60)).await;
+            tokio::time::sleep(tokio::time::Duration::from_secs(60 * 5)).await;
             gc_manager.write().await.garbage_collect().await;
         }
     });
@@ -182,6 +188,20 @@ async fn get_bucket(
         return Err(StatusCode::NOT_FOUND);
     }
 
+    // Check if bucket is suspended
+    {
+        let manager = state.channel_manager.read().await;
+        if let Some(channel) = manager.get_channel(&bucket_id) {
+            if channel.is_suspended() {
+                return Ok((
+                    StatusCode::TOO_MANY_REQUESTS,
+                    SUSPENSION_REASON_TEXT,
+                )
+                    .into_response());
+            }
+        }
+    };
+
     // Check if client wants event stream
     if let Some(accept) = headers.get(header::ACCEPT) {
         if accept == "text/event-stream" {
@@ -248,20 +268,36 @@ async fn get_bucket(
 async fn post_events(
     Path(bucket_id): Path<String>,
     State(state): State<AppState>,
-    body: String,
+    body: axum::body::Body,
 ) -> Result<Response, StatusCode> {
-    if body.is_empty() {
+    // Check if bucket is suspended before reading body
+    {
+        let manager = state.channel_manager.read().await;
+        if let Some(channel) = manager.get_channel(&bucket_id) {
+            if channel.is_suspended() {
+                return Ok((
+                    StatusCode::TOO_MANY_REQUESTS,
+                    SUSPENSION_REASON_TEXT,
+                )
+                    .into_response());
+            }
+        }
+    };
+
+    // Now consume the body
+    let body_bytes = axum::body::to_bytes(body, MAX_LOG_BODY_SIZE)
+        .await
+        .map_err(|_| StatusCode::PAYLOAD_TOO_LARGE)?;
+
+    if body_bytes.is_empty() {
         return Err(StatusCode::BAD_REQUEST);
     }
 
+    let body = String::from_utf8(body_bytes.to_vec()).map_err(|_| StatusCode::BAD_REQUEST)?;
     let lines: Vec<&str> = body.split('\n').filter(|line| !line.is_empty()).collect();
 
     if lines.is_empty() {
         return Err(StatusCode::BAD_REQUEST);
-    }
-
-    if lines.len() > MAX_LOG_LINES_PER_REQUEST {
-        return Err(StatusCode::PAYLOAD_TOO_LARGE);
     }
 
     info!(
@@ -280,6 +316,17 @@ async fn post_events(
         // No active viewers, silently accept but don't process
         return Ok(StatusCode::NO_CONTENT.into_response());
     };
+
+    // Record logs and check rate limit
+    if !channel.record_logs(lines.len() as u64) {
+        // Rate limit exceeded, bucket is now suspended
+        channel.publish_suspension(true).await;
+        return Ok((
+            StatusCode::TOO_MANY_REQUESTS,
+            SUSPENSION_REASON_TEXT,
+        )
+            .into_response());
+    }
 
     for line in lines {
         // Truncate lines that exceed the maximum size

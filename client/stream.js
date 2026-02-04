@@ -17,7 +17,7 @@ class Stream {
       msgKeys: ['msg', 'message', ''],
       metaKeys: []
     }, options);
-    this.handlers = { log: new Set(), stats: new Set(), stateChange: new Set() }
+    this.handlers = { log: new Set(), stats: new Set(), stateChange: new Set(), suspension: new Set() }
   }
 
   connect() {
@@ -28,6 +28,10 @@ class Stream {
     this.stream.addEventListener('stats', e => {
       this.setConnectionState();
       this.emit('stats', JSON.parse(e.data))
+    });
+    this.stream.addEventListener('suspension', e => {
+      this.setConnectionState();
+      this.emit('suspension', JSON.parse(e.data));
     });
     this.stream.addEventListener('log', e => {
       this.setConnectionState();

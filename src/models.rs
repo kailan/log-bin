@@ -25,6 +25,11 @@ pub struct StatsEvent {
     pub clients: Vec<String>,
 }
 
+#[derive(Debug, Clone, Serialize)]
+pub struct SuspensionEvent {
+    pub suspended: bool,
+}
+
 #[derive(Debug, Clone)]
 pub struct SseEvent {
     pub event_type: String,

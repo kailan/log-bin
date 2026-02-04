@@ -19,7 +19,8 @@ class Main extends Component {
       filterText: this.url.searchParams.get('filter'),
       events: [],
       stats: {},
-      streamError: false
+      streamError: false,
+      suspended: null
     }
   }
 
@@ -36,6 +37,7 @@ class Main extends Component {
       });
     });
     this.stream.on('stats', stats => this.setState({ stats }));
+    this.stream.on('suspension', suspension => this.setState({ suspended: suspension }));
     this.stream.on('stateChange', newStreamState => {
       clearTimeout(this.errorTimer);
       if (newStreamState !== 'open') {
@@ -87,6 +89,13 @@ class Main extends Component {
               has exceeded its maximum number of concurrent subscribers.
             </p>
             <p>Reload the page to retry.</p>
+          </div>
+        )}
+        {this.state.suspended && this.state.suspended.suspended && (
+          <div className='error-modal suspended-modal'>
+            <div className='heading'>🚫 Bucket Suspended</div>
+            <p>This bucket has been suspended due to high traffic volumes.</p>
+            <p><code>log-bin</code> is intended for development and debugging purposes, and is not designed to handle high volumes of traffic. If you need to inspect logs for a production workload or have any questions about this suspension, please contact Fastly support.</p>
           </div>
         )}
         <Footer bucketID={this.bucketID} />

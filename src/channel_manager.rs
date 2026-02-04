@@ -1,11 +1,14 @@
-use crate::models::{LogEvent, SseEvent, StatsEvent};
+use crate::MAX_LOG_LINES_PER_MINUTE;
+use crate::models::{LogEvent, SseEvent, StatsEvent, SuspensionEvent};
 use futures_util::stream::Stream;
 use std::collections::HashMap;
 use std::pin::Pin;
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::Arc;
+use std::time::{SystemTime, UNIX_EPOCH};
 use tokio::sync::broadcast;
 use tokio::sync::RwLock;
-use tracing::info;
+use tracing::{info, warn};
 use uuid::Uuid;
 
 const HISTORY_SIZE: usize = 10;
@@ -32,6 +35,10 @@ pub struct Channel {
     sender: broadcast::Sender<SseEvent>,
     history: Arc<RwLock<Vec<SseEvent>>>,
     clients: Arc<RwLock<HashMap<String, ()>>>,
+    // Rate limiting fields
+    suspended: AtomicBool,
+    log_count_current_minute: AtomicU64,
+    current_minute_timestamp: AtomicU64,
 }
 
 impl Channel {
@@ -41,6 +48,9 @@ impl Channel {
             sender,
             history: Arc::new(RwLock::new(Vec::new())),
             clients: Arc::new(RwLock::new(HashMap::new())),
+            suspended: AtomicBool::new(false),
+            log_count_current_minute: AtomicU64::new(0),
+            current_minute_timestamp: AtomicU64::new(0),
         }
     }
 
@@ -75,6 +85,60 @@ impl Channel {
                 yield event;
             }
         })
+    }
+
+    /// Check if bucket is suspended
+    pub fn is_suspended(&self) -> bool {
+        self.suspended.load(Ordering::Relaxed)
+    }
+
+    /// Record log entries and check rate limit. Returns true if logs were accepted, false if suspended.
+    pub fn record_logs(&self, count: u64) -> bool {
+        if self.suspended.load(Ordering::Relaxed) {
+            return false;
+        }
+
+        let now_minutes = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_secs()
+            / 60;
+
+        let stored_minute = self.current_minute_timestamp.load(Ordering::Relaxed);
+
+        if now_minutes != stored_minute {
+            // New minute, reset counter
+            self.current_minute_timestamp
+                .store(now_minutes, Ordering::Relaxed);
+            self.log_count_current_minute
+                .store(count, Ordering::Relaxed);
+        } else {
+            // Same minute, increment counter
+            let new_count = self
+                .log_count_current_minute
+                .fetch_add(count, Ordering::Relaxed)
+                + count;
+            if new_count > MAX_LOG_LINES_PER_MINUTE {
+                self.suspended.store(true, Ordering::Relaxed);
+                warn!(
+                    "Channel suspended due to rate limit exceeded: {} logs in current minute",
+                    new_count
+                );
+                return false;
+            }
+        }
+
+        true
+    }
+
+    pub async fn publish_suspension(&self, suspended: bool) {
+        let event = SuspensionEvent { suspended };
+        let data = serde_json::to_string(&event).unwrap();
+        let sse_event = SseEvent {
+            event_type: "suspension".to_string(),
+            data,
+        };
+        let _ = self.sender.send(sse_event);
     }
 
     pub async fn publish_log(&self, event: LogEvent) {
@@ -142,6 +206,7 @@ impl ChannelManager {
         let mut to_remove = Vec::new();
 
         for (name, channel) in &self.channels {
+            // Only consider for removal if there are no subscribers and it's not suspended
             if channel.subscriber_count() == 0 {
                 let name_clone = name.clone();
                 let channel_clone = channel.clone();
